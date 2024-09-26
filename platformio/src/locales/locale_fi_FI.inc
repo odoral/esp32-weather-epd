@@ -1,4 +1,4 @@
-/* Belgian Dutch locale data for esp32-weather-epd.
+/* Finnish locale data for esp32-weather-epd.
  * Copyright (C) 2022-2024  Luke Marzen
  *
  * This program is free software: you can redistribute it and/or modify
@@ -15,7 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Special thanks to Juan Rial (jrial) for contributing this translation.
+/* Special thanks to Lassi Lappalainen (Runweasel) for contributing this
+ * translation.
  *
  * If you have any feedback or suggestions on translations, please open an issue
  * on this project's github page:
@@ -38,29 +39,29 @@
 //   LC_TIME category.
 //   https://www.gnu.org/software/libc/sources.html
 // D_T_FMT                 string for formatting date and time
-const char *LC_D_T_FMT     = "%a %d %b %Y %T";
+const char *LC_D_T_FMT     = "%a %e. %Bta %Y %H.%M.%S";
 // LC_D_FMT                date format string
-const char *LC_D_FMT       = "%d-%m-%y";
+const char *LC_D_FMT       = "%d.%m.%Y";
 // T_FMT                   time format string
-const char *LC_T_FMT       = "%T";
+const char *LC_T_FMT       = "%H.%M.%S";
 // T_FMT_AMPM              a.m. or p.m. time format string
-const char *LC_T_FMT_AMPM  = "";
+const char *LC_T_FMT_AMPM  = "%H.%M.%S %p";
 // AM_STR                  Ante Meridian affix
-const char *LC_AM_STR      = "";
+const char *LC_AM_STR      = "AM";
 // PM_STR                  Post Meridian affix
-const char *LC_PM_STR      = "";
+const char *LC_PM_STR      = "PM";
 // DAY_{1-7}               name of the n-th day of the week
-const char *LC_DAY[7]      = {"Zondag", "Maandag", "Dinsdag", "Woensdag",
-                              "Donderdag", "Vrijdag", "Zaterdag"};
+const char *LC_DAY[7]      = {"Sunnuntai", "Maanantai", "Tiistai", "Keskiviikko",
+                              "Torstai", "Perjantai", "Lauantai"};
 // ABDAY_{1-7}             abbreviated name of the n-th day of the week
-const char *LC_ABDAY[7]    = {"Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za"};
+const char *LC_ABDAY[7]    = {"Su", "Ma", "Ti", "Ke", "To", "Pe", "La"};
 // MON_{1-12}              name of the n-th month of the year
-const char *LC_MON[12]     = {"Januari",   "Februari", "Maart",    "April",
-                              "Mei",       "Juni",     "Juli",     "Augustus",
-                              "September", "Oktober",  "November", "December"};
+const char *LC_MON[12]     = {"Tammikuu",    "Helmikuu", "Maaliskuu",    "Huhtikuu",
+                               "Toukokuu",       "Kes\xE4kuu",     "Hein\xE4kuu",     "Elokuu",
+                               "Syyskuu", "Lokakuu",  "Marraskuu", "Joulukuu"};
 // ABMON_{1-12}            abbreviated name of the n-th month of the year
-const char *LC_ABMON[12]   = {"Jan", "Feb", "Mrt", "Apr", "Mei", "Jun",
-                              "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"};
+const char *LC_ABMON[12]   = {"Tammi", "Helmi", "Maalis", "Huhti", "Touko", "Kes\xE4",
+                              "Hein\xE4", "Elo", "Syys", "Loka", "Marras", "Joulu"};
 // ERA                     era description segments
 const char *LC_ERA         = "";
 // ERA_D_FMT               era date format string
@@ -74,35 +75,35 @@ const char *LC_ERA_T_FMT   = "";
 // For full list of languages, see
 // https://openweathermap.org/api/one-call-api#multi
 // Note: "[only] The contents of the 'description' field will be translated."
-const String OWM_LANG = "nl";
+const String OWM_LANG = "fi";
 
 // CURRENT CONDITIONS
-const char *TXT_FEELS_LIKE         = "Voelt als";
-const char *TXT_SUNRISE            = "Zonsopgang";
-const char *TXT_SUNSET             = "Zonsondergang";
-const char *TXT_WIND               = "Wind";
-const char *TXT_HUMIDITY           = "Vochtigheid";
-const char *TXT_UV_INDEX           = "UV Index";
-const char *TXT_PRESSURE           = "Luchtdruk";
-const char *TXT_AIR_QUALITY        = "Luchtkwaliteit";
-const char *TXT_AIR_POLLUTION      = "Luchtvervuiling";
-const char *TXT_VISIBILITY         = "Zichtbaarheid";
-const char *TXT_INDOOR_TEMPERATURE = "Temperatuur";
-const char *TXT_INDOOR_HUMIDITY    = "Vochtigheid";
+const char *TXT_FEELS_LIKE         = "Tuntuu kuin";
+const char *TXT_SUNRISE            = "Auringon nousu";
+const char *TXT_SUNSET             = "Auringon lasku";
+const char *TXT_WIND               = "Tuuli";
+const char *TXT_HUMIDITY           = "Ilmankosteus";
+const char *TXT_UV_INDEX           = "UV-indeksi";
+const char *TXT_PRESSURE           = "Ilmanpaine";
+const char *TXT_AIR_QUALITY        = "Ilman Laatu";
+const char *TXT_AIR_POLLUTION      = "Ilmansaaste";
+const char *TXT_VISIBILITY         = "N\xE4kyvyys";
+const char *TXT_INDOOR_TEMPERATURE = "L\xE4mp\xF6tila";
+const char *TXT_INDOOR_HUMIDITY    = "Ilmankosteus";
 
 // UV INDEX
-const char *TXT_UV_LOW       = "Laag";
-const char *TXT_UV_MODERATE  = "Gematigd";
-const char *TXT_UV_HIGH      = "Hoog";
-const char *TXT_UV_VERY_HIGH = "Zeer Hoog";
-const char *TXT_UV_EXTREME   = "Extreem";
+const char *TXT_UV_LOW       = "Matala";
+const char *TXT_UV_MODERATE  = "Kohtalainen";
+const char *TXT_UV_HIGH      = "Korkea";
+const char *TXT_UV_VERY_HIGH = "Eritt\xE4in korkea";
+const char *TXT_UV_EXTREME   = "\xC4\xE4rimm\xE4inen";
 
 // WIFI
-const char *TXT_WIFI_EXCELLENT     = "Uitstekend";
-const char *TXT_WIFI_GOOD          = "Goed";
-const char *TXT_WIFI_FAIR          = "Redelijk";
-const char *TXT_WIFI_WEAK          = "Zwak";
-const char *TXT_WIFI_NO_CONNECTION = "Geen Verbinding";
+const char *TXT_WIFI_EXCELLENT     = "Erinomainen";
+const char *TXT_WIFI_GOOD          = "Hyv\xE4";
+const char *TXT_WIFI_FAIR          = "Tyydytt\xE4v\xE4";
+const char *TXT_WIFI_WEAK          = "Heikko";
+const char *TXT_WIFI_NO_CONNECTION = "Ei yhteytt\xE4";
 
 // UNIT SYMBOLS - TEMPERATURE
 const char *TXT_UNITS_TEMP_KELVIN     = "K";
@@ -182,8 +183,8 @@ const char *TXT_CRIT_LOW_BATTERY_VOLTAGE = "Critically low battery voltage!";
 // Here are a few examples, uncomment the array for your region (or create your
 // own).
 // const std::vector<String> ALERT_URGENCY = {"outlook", "statement", "watch", "advisory", "warning", "emergency"}; // US National Weather Service
-// const std::vector<String> ALERT_URGENCY = {"yellow", "amber", "red"};                 // United Kingdom's national weather service (MET Office)
-const std::vector<String> ALERT_URGENCY = {"minor", "moderate", "severe", "extreme"}; // METEO
+const std::vector<String> ALERT_URGENCY = {"yellow", "amber", "red"};                 // United Kingdom's national weather service (MET Office)
+// const std::vector<String> ALERT_URGENCY = {"minor", "moderate", "severe", "extreme"}; // METEO
 // const std::vector<String> ALERT_URGENCY = {}; // Disable urgency interpretation (algorithm will fallback to only prefer the most recently issued alerts)
 
 // ALERT TERMINOLOGY
@@ -251,99 +252,99 @@ extern "C" {
 //   HONG_KONG_AQHI       INDIA_AQI            CHINA_AQI
 //   SINGAPORE_PSI        SOUTH_KOREA_CAI      UNITED_KINGDOM_DAQI
 //   UNITED_STATES_AQI
-const aqi_scale_t AQI_SCALE = EUROPEAN_UNION_CAQI;
+const aqi_scale_t AQI_SCALE = UNITED_STATES_AQI;
 
 const char *AUSTRALIA_AQI_TXT[6] =
 {
-  "Zeer Goed",
-  "Goed",
-  "Redelijk",
-  "Slecht",
-  "Zeer Slecht",
-  "Gevaarlijk",
+  "Eritt\xE4in hyv\xE4",
+  "Hyv\xE4",
+  "Tyydytt\xE4v\xE4",
+  "Huono",
+  "Eritt\xE4in huono",
+  "Vaarallinen",
 };
 const char *CANADA_AQHI_TXT[4] =
 {
-  "Laag",
-  "Gematigd",
-  "Hoog",
-  "Zeer Hoog",
+  "Matala",
+  "Kohtalainen",
+  "Korkea",
+  "Eritt\xE4in korkea",
 };
 const char *EUROPEAN_UNION_CAQI_TXT[5] =
 {
-  "Zeer Laag",
-  "Laag",
-  "Middelmatig",
-  "Hoog",
-  "Zeer Hoog",
+  "Eritt\xE4in matala",
+  "Matala",
+  "Keskitaso",
+  "Korkea",
+  "Eritt\xE4in korkea",
 };
 const char *HONG_KONG_AQHI_TXT[5] =
 {
-  "Laag",
-  "Gematigd",
-  "Hoog",
-  "Zeer Hoog",
-  "Gevaarlijk",
+  "Matala",
+  "Kohtalainen",
+  "Korkea",
+  "Eritt\xE4in korkea",
+  "Vaarallinen",
 };
 const char *INDIA_AQI_TXT[6] =
 {
-  "Goed",
-  "Bevredigend",
-  "Gematigd",
-  "Slecht",
-  "Zeer Slecht",
-  "Ernstig",
+  "Hyv\xE4",
+  "Tyydytt\xE4v\xE4",
+  "Kohtalainen",
+  "Huono",
+  "Eritt\xE4in huono",
+  "Vakava",
 };
 const char *CHINA_AQI_TXT[6] =
 {
-  "Uitstekend",
-  "Goed",
-  "Licht Vervuild",
-  "Middelmatig Vervuild",
-  "Zwaar Vervuild",
-  "Ernstig Vervuild",
+  "Erinomainen",
+  "Hyv\xE4",
+  "V\xE4h\xE4n saastunut",
+  "Kohtuullisesti saastunut",
+  "Voimakkaasti saastunut",
+  "Eritt\xE4in voimakkaasti saastunut",
 };
 const char *SINGAPORE_PSI_TXT[5] =
 {
-  "Goed",
-  "Gematigd",
-  "Ongezond",
-  "Zeer Ongezond",
-  "Gevaarlijk",
+  "Hyv\xE4",
+  "Kohtalainen",
+  "Ep\xE4terveellinen",
+  "Eritt\xE4in ep\xE4terveellinen",
+  "Vaarallinen",
 };
 const char *SOUTH_KOREA_CAI_TXT[4] =
 {
-  "Goed",
-  "Middelmatig",
-  "Ongezond",
-  "Zeer Ongezond",
+  "Hyv\xE4",
+  "Keskitaso",
+  "Ep\xE4terveellinen",
+  "Eritt\xE4in ep\xE4terveellinen",
 };
 const char *UNITED_KINGDOM_DAQI_TXT[4] =
 {
-  "Laag",
-  "Gematigd",
-  "Hoog",
-  "Zeer Hoog",
+  "Matala",
+  "Kohtalainen",
+  "Korkea",
+  "Eritt\xE4in korkea",
 };
 const char *UNITED_STATES_AQI_TXT[6] =
 {
-  "Goed",
-  "Gematigd",
-  "Ongezond voor Gevoelige Groepen",
-  "Ongezond",
-  "Zeer Ongezond",
-  "Gevaarlijk",
+  "Hyv\xE4",
+  "Kohtalainen",
+  "Ep\xE4terveellinen herkille ryhmille",
+  "Ep\xE4terveellinen",
+  "Eritt\xE4in ep\xE4terveellinen",
+  "Vaarallinen",
 };
 } // end extern "C"
 
 // COMPASS POINT
 const char *COMPASS_POINT_NOTATION[32] = {
 //   0°   11.25°   22.5°   33.75°   45°   56.25°   67.5°   78.75°
-   "N",  "NbO",  "NNO",   "NObN",  "NO", "NObO",  "ONO",  "ObN",
+   "N",  "NbE",  "NNE",   "NEbN",  "NE", "NEbE",  "ENE",  "EbN",
 //  90°  101.25°  112.5°  123.75°  135°  146.25°  157.5°  168.75°
-   "O",  "ObZ",   "OZO",  "ZObO",  "ZO", "ZObZ",  "ZZO",  "ZbO",
+   "E",  "EbS",   "ESE",  "SEbE",  "SE", "SEbS",  "SSE",  "SbE",
 // 180°  191.25°  202.5°  213.75°  225°  236.25°  247.5°  258.75°
-   "Z",  "ZbW",   "ZZW",  "ZWbZ",  "ZW", "ZWbW",  "WZW",  "WbZ",
+   "S",  "SbW",   "SSW",  "SWbS",  "SW", "SWbW",  "WSW",  "WbS",
 // 270°  281.25°  292.5°  303.75°  315°  326.25°  337.5°  348.75°
    "W",  "WbN",   "WNW",  "NWbW",  "NW", "NWbN",  "NNW",  "NbW",
 };

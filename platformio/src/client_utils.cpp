@@ -1,5 +1,5 @@
 /* Client side utilities for esp32-weather-epd.
- * Copyright (C) 2022-2023  Luke Marzen
+ * Copyright (C) 2022-2024  Luke Marzen
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@
 wl_status_t startWiFi(int &wifiRSSI)
 {
   WiFi.mode(WIFI_STA);
-  Serial.printf("Connecting to '%s'", WIFI_SSID);
+  Serial.printf("%s '%s'", TXT_CONNECTING_TO, WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   // timeout if WiFi does not connect in WIFI_TIMEOUT ms from now
@@ -81,7 +81,7 @@ wl_status_t startWiFi(int &wifiRSSI)
   }
   else
   {
-    Serial.printf("Could not connect to '%s'\n", WIFI_SSID);
+    Serial.printf("%s '%s'\n", TXT_COULD_NOT_CONNECT_TO, WIFI_SSID);
   }
   return connection_status;
 } // startWiFi
@@ -92,7 +92,7 @@ void killWiFi()
 {
   WiFi.disconnect();
   WiFi.mode(WIFI_OFF);
-}
+} // killWiFi
 
 /* Prints the local time to serial monitor.
  *
@@ -103,12 +103,12 @@ bool printLocalTime(tm *timeInfo)
   int attempts = 0;
   while (!getLocalTime(timeInfo) && attempts++ < 3)
   {
-    Serial.println("Failed to obtain time");
+    Serial.println(TXT_FAILED_TO_GET_TIME);
     return false;
   }
   Serial.println(timeInfo, "%A, %B %d, %Y %H:%M:%S");
   return true;
-} // killWiFi
+} // printLocalTime
 
 /* Waits for NTP server time sync, adjusted for the time zone specified in
  * config.cpp.
@@ -124,7 +124,7 @@ bool waitForSNTPSync(tm *timeInfo)
   if ((sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET)
       && (millis() < timeout))
   {
-    Serial.print("Waiting for SNTP synchronization.");
+    Serial.print(TXT_WAITING_FOR_SNTP);
     delay(100); // ms
     while ((sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET)
         && (millis() < timeout))
@@ -154,19 +154,33 @@ bool waitForSNTPSync(tm *timeInfo)
   DeserializationError jsonErr = {};
   String uri = "/data/" + OWM_ONECALL_VERSION
                + "/onecall?lat=" + LAT + "&lon=" + LON + "&lang=" + OWM_LANG
-               + "&units=standard&exclude=minutely&appid=" + OWM_APIKEY;
+               + "&units=standard&exclude=minutely";
+#if !DISPLAY_ALERTS
+  // exclude alerts
+  uri += ",alerts";
+#endif
+
   // This string is printed to terminal to help with debugging. The API key is
   // censored to reduce the risk of users exposing their key.
-  String sanitizedUri = OWM_ENDPOINT
-               + "/data/" + OWM_ONECALL_VERSION
-               + "/onecall?lat=" + LAT + "&lon=" + LON + "&lang=" + OWM_LANG
-               + "&units=standard&exclude=minutely&appid={API key}";
+  String sanitizedUri = OWM_ENDPOINT + uri + "&appid={API key}";
 
-  Serial.println("Attempting HTTP Request: " + sanitizedUri);
+  uri += "&appid=" + OWM_APIKEY;
+
+  Serial.print(TXT_ATTEMPTING_HTTP_REQ);
+  Serial.println(": " + sanitizedUri);
   int httpResponse = 0;
   while (!rxSuccess && attempts < 3)
   {
+    wl_status_t connection_status = WiFi.status();
+    if (connection_status != WL_CONNECTED)
+    {
+      // -512 offset distinguishes these errors from httpClient errors
+      return -512 - static_cast<int>(connection_status);
+    }
+
     HTTPClient http;
+    http.setConnectTimeout(HTTP_CLIENT_TCP_TIMEOUT); // default 5000ms
+    http.setTimeout(HTTP_CLIENT_TCP_TIMEOUT); // default 5000ms
     http.begin(client, OWM_ENDPOINT, OWM_PORT, uri);
     httpResponse = http.GET();
     if (httpResponse == HTTP_CODE_OK)
@@ -174,9 +188,8 @@ bool waitForSNTPSync(tm *timeInfo)
       jsonErr = deserializeOneCall(http.getStream(), r);
       if (jsonErr)
       {
-        rxSuccess = false;
-        // -100 offset distinguishes these errors from httpClient errors
-        httpResponse = -100 - static_cast<int>(jsonErr.code());
+        // -256 offset distinguishes these errors from httpClient errors
+        httpResponse = -256 - static_cast<int>(jsonErr.code());
       }
       rxSuccess = !jsonErr;
     }
@@ -226,11 +239,21 @@ bool waitForSNTPSync(tm *timeInfo)
                + "&start=" + startStr + "&end=" + endStr
                + "&appid={API key}";
 
-  Serial.println("Attempting HTTP Request: " + sanitizedUri);
+  Serial.print(TXT_ATTEMPTING_HTTP_REQ);
+  Serial.println(": " + sanitizedUri);
   int httpResponse = 0;
   while (!rxSuccess && attempts < 3)
   {
+    wl_status_t connection_status = WiFi.status();
+    if (connection_status != WL_CONNECTED)
+    {
+      // -512 offset distinguishes these errors from httpClient errors
+      return -512 - static_cast<int>(connection_status);
+    }
+
     HTTPClient http;
+    http.setConnectTimeout(HTTP_CLIENT_TCP_TIMEOUT); // default 5000ms
+    http.setTimeout(HTTP_CLIENT_TCP_TIMEOUT); // default 5000ms
     http.begin(client, OWM_ENDPOINT, OWM_PORT, uri);
     httpResponse = http.GET();
     if (httpResponse == HTTP_CODE_OK)
@@ -238,8 +261,8 @@ bool waitForSNTPSync(tm *timeInfo)
       jsonErr = deserializeAirQuality(http.getStream(), r);
       if (jsonErr)
       {
-        // -100 offset to distinguishes these errors from httpClient errors
-        httpResponse = -100 - static_cast<int>(jsonErr.code());
+        // -256 offset to distinguishes these errors from httpClient errors
+        httpResponse = -256 - static_cast<int>(jsonErr.code());
       }
       rxSuccess = !jsonErr;
     }

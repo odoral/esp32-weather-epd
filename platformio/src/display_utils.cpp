@@ -1,5 +1,5 @@
 /* Display helper utilities for esp32-weather-epd.
- * Copyright (C) 2022-2023  Luke Marzen
+ * Copyright (C) 2022-2024  Luke Marzen
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,6 +18,8 @@
 #include <cmath>
 #include <vector>
 #include <Arduino.h>
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
 
 #include <aqi.h>
 
@@ -35,29 +37,75 @@
 #include "icons/icons_64x64.h"
 #include "icons/icons_196x196.h"
 
-/* Returns battery percentage, rounded to the nearest integer.
- * Takes a voltage and uses a pre-calculated polynomial to find an approximation
- * of the battery life percentage remaining.
+/* Returns battery voltage in millivolts (mv).
  */
-int calcBatPercent(double v)
+uint32_t readBatteryVoltage()
 {
-  // this formula was calculated using samples collected from a lipo battery
-  double y = -  144.9390 * v * v * v
-             + 1655.8629 * v * v
-             - 6158.8520 * v
-             + 7501.3202;
+  esp_adc_cal_characteristics_t adc_chars;
+  // __attribute__((unused)) disables compiler warnings about this variable
+  // being unused (Clang, GCC) which is the case when DEBUG_LEVEL == 0.
+  esp_adc_cal_value_t val_type __attribute__((unused));
+  adc_power_acquire();
+  uint16_t adc_val = analogRead(PIN_BAT_ADC);
+  adc_power_release();
 
-  // enforce bounds, 0-100
-  y = max(y, 0.0);
-  y = min(y, 100.0);
+  // We will use the eFuse ADC calibration bits, to get accurate voltage
+  // readings. The DFRobot FireBeetle Esp32-E V1.0's ADC is 12 bit, and uses
+  // 11db attenuation, which gives it a measurable input voltage range of 150mV
+  // to 2450mV.
+  val_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_11db,
+                                      ADC_WIDTH_BIT_12, 1100, &adc_chars);
 
-  y = round(y);
-  return static_cast<int>(y);
+#if DEBUG_LEVEL >= 1
+  if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF)
+  {
+    Serial.println("[debug] ADC Cal eFuse Vref");
+  }
+  else if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP)
+  {
+    Serial.println("[debug] ADC Cal Two Point");
+  }
+  else
+  {
+    Serial.println("[debug] ADC Cal Default");
+  }
+#endif
+
+  uint32_t batteryVoltage = esp_adc_cal_raw_to_voltage(adc_val, &adc_chars);
+  // DFRobot FireBeetle Esp32-E V1.0 voltage divider (1M+1M), so readings are
+  // multiplied by 2.
+  batteryVoltage *= 2;
+  return batteryVoltage;
+} // end readBatteryVoltage
+
+/* Returns battery percentage, rounded to the nearest integer.
+ * Takes a voltage in millivolts and uses a sigmoidal approximation to find an
+ * approximation of the battery life percentage remaining.
+ * 
+ * This function contains LGPLv3 code from 
+ * <https://github.com/rlogiacco/BatterySense>.
+ * 
+ * Symmetric sigmoidal approximation
+ * <https://www.desmos.com/calculator/7m9lu26vpy>
+ *
+ * c - c / (1 + k*x/v)^3
+ */
+uint32_t calcBatPercent(uint32_t v, uint32_t minv, uint32_t maxv)
+{
+  // slow
+  //uint32_t p = 110 - (110 / (1 + pow(1.468 * (v - minv)/(maxv - minv), 6)));
+
+  // steep
+  //uint32_t p = 102 - (102 / (1 + pow(1.621 * (v - minv)/(maxv - minv), 8.1)));
+
+  // normal
+  uint32_t p = 105 - (105 / (1 + pow(1.724 * (v - minv)/(maxv - minv), 5.5)));
+  return p >= 100 ? 100 : p;
 } // end calcBatPercent
 
 /* Returns 24x24 bitmap incidcating battery status.
  */
-const uint8_t *getBatBitmap24(int batPercent)
+const uint8_t *getBatBitmap24(uint32_t batPercent)
 {
   if (batPercent >= 93)
   {
@@ -325,179 +373,6 @@ const char *getUVIdesc(unsigned int uvi)
     return TXT_UV_EXTREME;
   }
 } // end getUVIdesc
-
-/*
- *   co    μg/m^3, Carbon Monoxide (CO)               1 ppb = 1.1456 μg/m^3
- *   nh3   μg/m^3, Ammonia (NH3)                      1 ppb = 0.6966 μg/m^3
- *   no    μg/m^3, Nitric Oxide (NO)                  1 ppb = 1.2274 μg/m^3
- *   no2   μg/m^3, Nitrogen Dioxide (NO2)             1 ppb = 1.8816 μg/m^3
- *   o3    μg/m^3, Ozone (O3)                         1 ppb = 1.9632 μg/m^3
- *   pb    μg/m^3, Lead (Pb)                          1 ppb = 1.9632 μg/m^3
- *   so2   μg/m^3, Sulfur Dioxide (SO2)               1 ppb = 8.4744 μg/m^3
- *   pm10  μg/m^3, Coarse Particulate Matter (<10μm)
- *   pm2_5 μg/m^3, Fine Particulate Matter (<2.5μm)
- */
-/* Returns the average pollutant concentration over a given number of previous
- * hours.
- *
- * hours must be a positive integer
- */
-float getAvgConc(const float pollutant[], int hours)
-{
-  float avg = 0;
-  // index (OWM_NUM_AIR_POLLUTION - 1) is most recent hourly concentration
-  for (int h = (OWM_NUM_AIR_POLLUTION - 1) - (hours - 1)
-       ; h < OWM_NUM_AIR_POLLUTION
-       ; ++h)
-  {
-    avg += pollutant[h];
-  }
-
-  avg = avg / static_cast<float>(hours);
-  return avg;
-}
-
-/* Returns the aqi for the given AQI and the selected AQI scale(defined in
- * config.h)
- */
-int getAQI(const owm_resp_air_pollution_t &p)
-{
-#ifdef AUSTRALIA_AQI
-  float co_8h     = getAvgConc(p.components.co,     8);
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float o3_4h     = getAvgConc(p.components.o3,     4);
-  float so2_1h    = getAvgConc(p.components.so2,    1);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return australia_aqi(co_8h, no2_1h, o3_1h, o3_4h, so2_1h, pm10_24h,
-                       pm2_5_24h);
-#endif // end AUSTRALIA_AQI
-#ifdef CANADA_AQHI
-  float no2_3h    = getAvgConc(p.components.no2,    3);
-  float o3_3h     = getAvgConc(p.components.o3,     3);
-  float pm2_5_3h  = getAvgConc(p.components.pm2_5,  3);
-  return canada_aqhi(no2_3h, o3_3h, pm2_5_3h);
-#endif // end CANADA_AQHI
-#ifdef EUROPE_CAQI
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float pm10_1h   = getAvgConc(p.components.pm10,   1);
-  float pm2_5_1h  = getAvgConc(p.components.pm2_5,  1);
-  return europe_caqi(no2_1h, o3_1h, pm10_1h, pm2_5_1h);
-#endif // end EUROPE_CAQI
-#ifdef HONG_KONG_AQHI
-  float no2_3h    = getAvgConc(p.components.no2,    3);
-  float o3_3h     = getAvgConc(p.components.o3,     3);
-  float so2_3h    = getAvgConc(p.components.so2,    3);
-  float pm10_3h   = getAvgConc(p.components.pm10,   3);
-  float pm2_5_3h  = getAvgConc(p.components.pm2_5,  3);
-  return hong_kong_aqhi(no2_3h,  o3_3h, so2_3h, pm10_3h, pm2_5_3h);
-#endif // end HONG_KONG_AQHI
-#ifdef INDIA_AQI
-  float co_8h     = getAvgConc(p.components.co,     8);
-  float nh3_24h   = getAvgConc(p.components.nh3,   24);
-  float no2_24h   = getAvgConc(p.components.no2,   24);
-  float o3_8h     = getAvgConc(p.components.o3,     8);
-  float pb_24h    = 0; // OpenWeatherMap does not report pb concentration
-  float so2_24h   = getAvgConc(p.components.so2,   24);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return india_aqi(co_8h, nh3_24h, no2_24h, o3_8h, pb_24h, so2_24h, pm10_24h,
-                   pm2_5_24h);
-#endif // end INDIA_AQI
-#ifdef MAINLAND_CHINA_AQI
-  float co_1h     = getAvgConc(p.components.co,     1);
-  float co_24h    = getAvgConc(p.components.co,    24);
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float no2_24h   = getAvgConc(p.components.no2,   24);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float o3_8h     = getAvgConc(p.components.o3,     8);
-  float so2_1h    = getAvgConc(p.components.so2,    1);
-  float so2_24h   = getAvgConc(p.components.so2,   24);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return mainland_china_aqi(co_1h, co_24h, no2_1h, no2_24h, o3_1h, o3_8h,
-                            so2_1h, so2_24h, pm10_24h, pm2_5_24h);
-#endif // end MAINLAND_CHINA_AQI
-#ifdef SINGAPORE_PSI
-  float co_8h     = getAvgConc(p.components.co,     8);
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float o3_8h     = getAvgConc(p.components.o3,     8);
-  float so2_24h   = getAvgConc(p.components.so2,   24);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return singapore_psi(co_8h, no2_1h, o3_1h, o3_8h, so2_24h, pm10_24h,
-                       pm2_5_24h);
-#endif // end SINGAPORE_PSI
-#ifdef SOUTH_KOREA_CAI
-  float co_1h     = getAvgConc(p.components.co,     1);
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float so2_1h    = getAvgConc(p.components.so2,    1);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return south_korea_cai(co_1h, no2_1h, o3_1h, so2_1h, pm10_24h, pm2_5_24h);
-#endif // end SOUTH_KOREA_CAI
-#ifdef UNITED_KINGDOM_DAQI
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_8h     = getAvgConc(p.components.o3,     8);
-  float so2_15min = getAvgConc(p.components.so2,    1); // OWM only gives hourly
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return united_kingdom_daqi(no2_1h, o3_8h, so2_15min, pm10_24h, pm2_5_24h);
-#endif // end UNITED_KINGDOM_DAQI
-#ifdef UNITED_STATES_AQI
-  float co_8h     = getAvgConc(p.components.co,     8);
-  float no2_1h    = getAvgConc(p.components.no2,    1);
-  float o3_1h     = getAvgConc(p.components.o3,     1);
-  float o3_8h     = getAvgConc(p.components.o3,     8);
-  float so2_1h    = getAvgConc(p.components.so2,    1);
-  float so2_24h   = getAvgConc(p.components.so2,   24);
-  float pm10_24h  = getAvgConc(p.components.pm10,  24);
-  float pm2_5_24h = getAvgConc(p.components.pm2_5, 24);
-  return united_states_aqi(co_8h, no2_1h, o3_1h, o3_8h, so2_1h, so2_24h,
-                           pm10_24h, pm2_5_24h);
-#endif // end UNITED_STATES_AQI
-} // end getAQI
-
-/* Returns the descriptor text for the given AQI and the selected AQI
- * scale(defined in config.h)
- */
-const char *getAQIdesc(int aqi)
-{
-#ifdef AUSTRALIA_AQI
-  return australia_aqi_desc(      aqi);
-#endif // end AUSTRALIA_AQI
-#ifdef CANADA_AQHI
-  return canada_aqhi_desc(        aqi);
-#endif // end CANADA_AQHI
-#ifdef EUROPE_CAQI
-  return europe_caqi_desc(        aqi);
-#endif // end EUROPE_CAQI
-#ifdef HONG_KONG_AQHI
-  return hong_kong_aqhi_desc(     aqi);
-#endif // end HONG_KONG_AQHI
-#ifdef INDIA_AQI
-  return india_aqi_desc(          aqi);
-#endif // end INDIA_AQI
-#ifdef MAINLAND_CHINA_AQI
-  return mainland_china_aqi_desc( aqi);
-#endif // end MAINLAND_CHINA_AQI
-#ifdef SINGAPORE_PSI
-  return singapore_psi_desc(      aqi);
-#endif // end SINGAPORE_PSI
-#ifdef SOUTH_KOREA_CAI
-  return south_korea_cai_desc(    aqi);
-#endif // end SOUTH_KOREA_CAI
-#ifdef UNITED_KINGDOM_DAQI
-  return united_kingdom_daqi_desc(aqi);
-#endif // end UNITED_KINGDOM_DAQI
-#ifdef UNITED_STATES_AQI
-  return united_states_aqi_desc(  aqi);
-#endif // end UNITED_STATES_AQI
-} // end getAQIdesc
 
 /* Returns the wifi signal strength descriptor text for the given RSSI.
  */
@@ -1076,14 +951,14 @@ enum alert_category getAlertCategory(const owm_alerts_t &alert)
   return alert_category::NOT_FOUND;
 } // end getAlertCategory
 
-#ifdef WIND_DIRECTIONS_CARDINAL
+#ifdef WIND_ICONS_CARDINAL
 static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_0deg_24x24,    // N
   wind_direction_meteorological_90deg_24x24,   // E
   wind_direction_meteorological_180deg_24x24,  // S
   wind_direction_meteorological_270deg_24x24}; // W
-#endif // end WIND_DIRECTIONS_CARDINAL
-#ifdef WIND_DIRECTIONS_ORDINAL
+#endif // end WIND_ICONS_CARDINAL
+#ifdef WIND_ICONS_INTERCARDINAL
 static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_0deg_24x24,    // N
   wind_direction_meteorological_45deg_24x24,   // NE
@@ -1093,8 +968,8 @@ static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_225deg_24x24,  // SW
   wind_direction_meteorological_270deg_24x24,  // W
   wind_direction_meteorological_315deg_24x24}; // NW
-#endif // end WIND_DIRECTIONS_ORDINAL
-#ifdef WIND_DIRECTIONS_SECONDARY_INTERCARDINAL
+#endif // end WIND_ICONS_INTERCARDINAL
+#ifdef WIND_ICONS_SECONDARY_INTERCARDINAL
 static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_0deg_24x24,      // N
   wind_direction_meteorological_22_5deg_24x24,   // NNE
@@ -1112,8 +987,8 @@ static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_292_5deg_24x24,  // WNW
   wind_direction_meteorological_315deg_24x24,    // NW
   wind_direction_meteorological_337_5deg_24x24}; // NNW
-#endif // end WIND_DIRECTIONS_SECONDARY_INTERCARDINAL
-#ifdef WIND_DIRECTIONS_TERTIARY_INTERCARDINAL
+#endif // end WIND_ICONS_SECONDARY_INTERCARDINAL
+#ifdef WIND_ICONS_TERTIARY_INTERCARDINAL
 static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_0deg_24x24,       // N
   wind_direction_meteorological_11_25deg_24x24,   // NbE
@@ -1147,8 +1022,8 @@ static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_326_25deg_24x24,  // NWbN
   wind_direction_meteorological_337_5deg_24x24,   // NNW
   wind_direction_meteorological_348_75deg_24x24}; // NbW
-#endif // end WIND_DIRECTIONS_TERTIARY_INTERCARDINAL
-#ifdef WIND_DIRECTIONS_360
+#endif // end WIND_ICONS_TERTIARY_INTERCARDINAL
+#ifdef WIND_ICONS_360
 static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_0deg_24x24,
   wind_direction_meteorological_1deg_24x24,
@@ -1510,7 +1385,7 @@ static const unsigned char *wind_direction_icon_arr[] = {
   wind_direction_meteorological_357deg_24x24,
   wind_direction_meteorological_358deg_24x24,
   wind_direction_meteorological_359deg_24x24};
-#endif // end WIND_DIRECTIONS_360
+#endif // end WIND_ICONS_360
 
 /* Returns a 24x24 wind direction icon bitmap for angles 0 to 359 degrees
  * Parameter is meteorological wind direction, arrow points in the direction the
@@ -1528,117 +1403,160 @@ const uint8_t *getWindBitmap24(int windDeg)
   return wind_direction_icon_arr[arr_offset];
 } // end getWindBitmap24
 
+/* Returns a pointer to a string that expresses the Compass Point Notation (CPN)
+ * of the given windDeg.
+ *
+ *   PRECISION                  #     ERROR   EXAMPLE
+ *   Cardinal                   4  ±45.000°   E
+ *   Intercardinal (Ordinal)    8  ±22.500°   NE
+ *   Secondary Intercardinal   16  ±11.250°   NNE
+ *   Tertiary Intercardinal    32   ±5.625°   NbE
+ */
+const char *getCompassPointNotation(int windDeg)
+{
+#if defined(WIND_INDICATOR_CPN_CARDINAL)
+  const int precision = 4;
+#elif defined(WIND_INDICATOR_CPN_INTERCARDINAL)
+  const int precision = 8;
+#elif defined(WIND_INDICATOR_CPN_SECONDARY_INTERCARDINAL)
+  const int precision = 16;
+#elif defined(WIND_INDICATOR_CPN_TERTIARY_INTERCARDINAL)
+  const int precision = 32;
+#else
+  const int precision = 4;
+#endif
+
+  windDeg %= 360; // enforce domain
+  int arr_offset = (int) (windDeg / ( 360 / (float) precision )) 
+                         * ( 32 / precision) ;
+
+  return COMPASS_POINT_NOTATION[arr_offset];
+} // end getCompassPointNotation
 
 /* This function returns a pointer to a string representing the meaning for a
  * HTTP response status code or an arduino client error code.
  * ArduinoJson DeserializationError codes are also included here and are given a
  * negative 100 offset to distinguish them from other client error codes.
  *
- * HTTP response status codes (100 to 511)
+ * HTTP response status codes [100, 599]
  * https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
  *
- * HTTP client errors (-1 to -11)
+ * HTTP client errors [0, -255]
  * https://github.com/espressif/arduino-esp32/blob/master/libraries/HTTPClient/src/HTTPClient.h
  *
- * ArduinoJson DeserializationError codes (-100 to -105)
+ * ArduinoJson DeserializationError codes [-256, -511]
  * https://arduinojson.org/v6/api/misc/deserializationerror/
+ * 
+ * WiFi Status codes [-512, -767]
+ * https://github.com/espressif/arduino-esp32/blob/master/libraries/WiFi/src/WiFiType.h
  */
 const char *getHttpResponsePhrase(int code)
 {
   switch (code)
   {
-  // HTTP client errors
-  case HTTPC_ERROR_CONNECTION_REFUSED:  return "connection refused";
-  case HTTPC_ERROR_SEND_HEADER_FAILED:  return "send header failed";
-  case HTTPC_ERROR_SEND_PAYLOAD_FAILED: return "send payload failed";
-  case HTTPC_ERROR_NOT_CONNECTED:       return "not connected";
-  case HTTPC_ERROR_CONNECTION_LOST:     return "connection lost";
-  case HTTPC_ERROR_NO_STREAM:           return "no stream";
-  case HTTPC_ERROR_NO_HTTP_SERVER:      return "no HTTP server";
-  case HTTPC_ERROR_TOO_LESS_RAM:        return "too less ram";
-  case HTTPC_ERROR_ENCODING:            return "Transfer-Encoding not supported";
-  case HTTPC_ERROR_STREAM_WRITE:        return "Stream write error";
-  case HTTPC_ERROR_READ_TIMEOUT:        return "read Timeout";
-
   // 1xx - Informational Responses
-  case 100: return "Continue";
-  case 101: return "Switching Protocols";
-  case 102: return "Processing";
-  case 103: return "Early Hints";
+  case 100: return TXT_HTTP_RESPONSE_100;
+  case 101: return TXT_HTTP_RESPONSE_101;
+  case 102: return TXT_HTTP_RESPONSE_102;
+  case 103: return TXT_HTTP_RESPONSE_103;
 
   // 2xx - Successful Responses
-  case 200: return "OK";
-  case 201: return "Created";
-  case 202: return "Accepted";
-  case 203: return "Non-Authoritative Information";
-  case 204: return "No Content";
-  case 205: return "Reset Content";
-  case 206: return "Partial Content";
-  case 207: return "Multi-Status";
-  case 208: return "Already Reported";
-  case 226: return "IM Used";
+  case 200: return TXT_HTTP_RESPONSE_200;
+  case 201: return TXT_HTTP_RESPONSE_201;
+  case 202: return TXT_HTTP_RESPONSE_202;
+  case 203: return TXT_HTTP_RESPONSE_203;
+  case 204: return TXT_HTTP_RESPONSE_204;
+  case 205: return TXT_HTTP_RESPONSE_205;
+  case 206: return TXT_HTTP_RESPONSE_206;
+  case 207: return TXT_HTTP_RESPONSE_207;
+  case 208: return TXT_HTTP_RESPONSE_208;
+  case 226: return TXT_HTTP_RESPONSE_226;
 
   // 3xx - Redirection Responses
-  case 300: return "Multiple Choices";
-  case 301: return "Moved Permanently";
-  case 302: return "Found";
-  case 303: return "See Other";
-  case 304: return "Not Modified";
-  case 305: return "Use Proxy";
-  case 307: return "Temporary Redirect";
-  case 308: return "Permanent Redirect";
+  case 300: return TXT_HTTP_RESPONSE_300;
+  case 301: return TXT_HTTP_RESPONSE_301;
+  case 302: return TXT_HTTP_RESPONSE_302;
+  case 303: return TXT_HTTP_RESPONSE_303;
+  case 304: return TXT_HTTP_RESPONSE_304;
+  case 305: return TXT_HTTP_RESPONSE_305;
+  case 307: return TXT_HTTP_RESPONSE_307;
+  case 308: return TXT_HTTP_RESPONSE_308;
 
   // 4xx - Client Error Responses
-  case 400: return "Bad Request";
-  case 401: return "Unauthorized";
-  case 402: return "Payment Required";
-  case 403: return "Forbidden";
-  case 404: return "Not Found";
-  case 405: return "Method Not Allowed";
-  case 406: return "Not Acceptable";
-  case 407: return "Proxy Authentication Required";
-  case 408: return "Request Timeout";
-  case 409: return "Conflict";
-  case 410: return "Gone";
-  case 411: return "Length Required";
-  case 412: return "Precondition Failed";
-  case 413: return "Content Too Large";
-  case 414: return "URI Too Long";
-  case 415: return "Unsupported Media Type";
-  case 416: return "Range Not Satisfiable";
-  case 417: return "Expectation Failed";
-  case 418: return "I'm a teapot";
-  case 421: return "Misdirected Request";
-  case 422: return "Unprocessable Content";
-  case 423: return "Locked";
-  case 424: return "Failed Dependency";
-  case 425: return "Too Early";
-  case 426: return "Upgrade Required";
-  case 428: return "Precondition Required";
-  case 429: return "Too Many Requests";
-  case 431: return "Request Header Fields Too Large";
-  case 451: return "Unavailable For Legal Reasons";
+  case 400: return TXT_HTTP_RESPONSE_400;
+  case 401: return TXT_HTTP_RESPONSE_401;
+  case 402: return TXT_HTTP_RESPONSE_402;
+  case 403: return TXT_HTTP_RESPONSE_403;
+  case 404: return TXT_HTTP_RESPONSE_404;
+  case 405: return TXT_HTTP_RESPONSE_405;
+  case 406: return TXT_HTTP_RESPONSE_406;
+  case 407: return TXT_HTTP_RESPONSE_407;
+  case 408: return TXT_HTTP_RESPONSE_408;
+  case 409: return TXT_HTTP_RESPONSE_409;
+  case 410: return TXT_HTTP_RESPONSE_410;
+  case 411: return TXT_HTTP_RESPONSE_411;
+  case 412: return TXT_HTTP_RESPONSE_412;
+  case 413: return TXT_HTTP_RESPONSE_413;
+  case 414: return TXT_HTTP_RESPONSE_414;
+  case 415: return TXT_HTTP_RESPONSE_415;
+  case 416: return TXT_HTTP_RESPONSE_416;
+  case 417: return TXT_HTTP_RESPONSE_417;
+  case 418: return TXT_HTTP_RESPONSE_418;
+  case 421: return TXT_HTTP_RESPONSE_421;
+  case 422: return TXT_HTTP_RESPONSE_422;
+  case 423: return TXT_HTTP_RESPONSE_423;
+  case 424: return TXT_HTTP_RESPONSE_424;
+  case 425: return TXT_HTTP_RESPONSE_425;
+  case 426: return TXT_HTTP_RESPONSE_426;
+  case 428: return TXT_HTTP_RESPONSE_428;
+  case 429: return TXT_HTTP_RESPONSE_429;
+  case 431: return TXT_HTTP_RESPONSE_431;
+  case 451: return TXT_HTTP_RESPONSE_451;
 
   // 5xx - Server Error Responses
-  case 500: return "Internal Server Error";
-  case 501: return "Not Implemented";
-  case 502: return "Bad Gateway";
-  case 503: return "Service Unavailable";
-  case 504: return "Gateway Timeout";
-  case 505: return "HTTP Version Not Supported";
-  case 506: return "Variant Also Negotiates";
-  case 507: return "Insufficient Storage";
-  case 508: return "Loop Detected";
-  case 510: return "Not Extended";
-  case 511: return "Network Authentication Required";
+  case 500: return TXT_HTTP_RESPONSE_500;
+  case 501: return TXT_HTTP_RESPONSE_501;
+  case 502: return TXT_HTTP_RESPONSE_502;
+  case 503: return TXT_HTTP_RESPONSE_503;
+  case 504: return TXT_HTTP_RESPONSE_504;
+  case 505: return TXT_HTTP_RESPONSE_505;
+  case 506: return TXT_HTTP_RESPONSE_506;
+  case 507: return TXT_HTTP_RESPONSE_507;
+  case 508: return TXT_HTTP_RESPONSE_508;
+  case 510: return TXT_HTTP_RESPONSE_510;
+  case 511: return TXT_HTTP_RESPONSE_511;
 
-  // ArduinoJson DeserializationError codes
-  case -100 - (DeserializationError::Code::Ok):              return "Deserialization OK";
-  case -100 - (DeserializationError::Code::EmptyInput):      return "Deserialization EmptyInput";
-  case -100 - (DeserializationError::Code::IncompleteInput): return "Deserialization IncompleteInput";
-  case -100 - (DeserializationError::Code::InvalidInput):    return "Deserialization InvalidInput";
-  case -100 - (DeserializationError::Code::NoMemory):        return "Deserialization NoMemory";
-  case -100 - (DeserializationError::Code::TooDeep):         return "Deserialization TooDeep";
+  // HTTP client errors [0, -255]
+  case HTTPC_ERROR_CONNECTION_REFUSED:  return TXT_HTTPC_ERROR_CONNECTION_REFUSED;
+  case HTTPC_ERROR_SEND_HEADER_FAILED:  return TXT_HTTPC_ERROR_SEND_HEADER_FAILED;
+  case HTTPC_ERROR_SEND_PAYLOAD_FAILED: return TXT_HTTPC_ERROR_SEND_PAYLOAD_FAILED;
+  case HTTPC_ERROR_NOT_CONNECTED:       return TXT_HTTPC_ERROR_NOT_CONNECTED;
+  case HTTPC_ERROR_CONNECTION_LOST:     return TXT_HTTPC_ERROR_CONNECTION_LOST;
+  case HTTPC_ERROR_NO_STREAM:           return TXT_HTTPC_ERROR_NO_STREAM;
+  case HTTPC_ERROR_NO_HTTP_SERVER:      return TXT_HTTPC_ERROR_NO_HTTP_SERVER;
+  case HTTPC_ERROR_TOO_LESS_RAM:        return TXT_HTTPC_ERROR_TOO_LESS_RAM;
+  case HTTPC_ERROR_ENCODING:            return TXT_HTTPC_ERROR_ENCODING;
+  case HTTPC_ERROR_STREAM_WRITE:        return TXT_HTTPC_ERROR_STREAM_WRITE;
+  case HTTPC_ERROR_READ_TIMEOUT:        return TXT_HTTPC_ERROR_READ_TIMEOUT;
+
+  // ArduinoJson DeserializationError codes  [-256, -511]
+  case -256 - (DeserializationError::Code::Ok):              return TXT_DESERIALIZATION_ERROR_OK;
+  case -256 - (DeserializationError::Code::EmptyInput):      return TXT_DESERIALIZATION_ERROR_EMPTY_INPUT;
+  case -256 - (DeserializationError::Code::IncompleteInput): return TXT_DESERIALIZATION_ERROR_INCOMPLETE_INPUT;
+  case -256 - (DeserializationError::Code::InvalidInput):    return TXT_DESERIALIZATION_ERROR_INVALID_INPUT;
+  case -256 - (DeserializationError::Code::NoMemory):        return TXT_DESERIALIZATION_ERROR_NO_MEMORY;
+  case -256 - (DeserializationError::Code::TooDeep):         return TXT_DESERIALIZATION_ERROR_TOO_DEEP;
+
+  // WiFi Status codes [-512, -767]
+  case -512 - WL_NO_SHIELD:       return TXT_WL_NO_SHIELD;
+  // case -512 - WL_STOPPED:       return TXT_WL_STOPPED; // future
+  case -512 - WL_IDLE_STATUS:     return TXT_WL_IDLE_STATUS;
+  case -512 - WL_NO_SSID_AVAIL:   return TXT_WL_NO_SSID_AVAIL;
+  case -512 - WL_SCAN_COMPLETED:  return TXT_WL_SCAN_COMPLETED;
+  case -512 - WL_CONNECTED:       return TXT_WL_CONNECTED;
+  case -512 - WL_CONNECT_FAILED:  return TXT_WL_CONNECT_FAILED;
+  case -512 - WL_CONNECTION_LOST: return TXT_WL_CONNECTION_LOST;
+  case -512 - WL_DISCONNECTED:    return TXT_WL_DISCONNECTED;
 
   default:  return "";
   }
@@ -1655,15 +1573,28 @@ const char *getWifiStatusPhrase(wl_status_t status)
 {
   switch (status)
   {
-  case WL_NO_SHIELD:       return "No Shield";
-  case WL_IDLE_STATUS:     return "Idle";
-  case WL_NO_SSID_AVAIL:   return "No SSID Available";
-  case WL_SCAN_COMPLETED:  return "Scan Complete";
-  case WL_CONNECTED:       return "Connected";
-  case WL_CONNECT_FAILED:  return "Connection Failed";
-  case WL_CONNECTION_LOST: return "Connection Lost";
-  case WL_DISCONNECTED:    return "Disconnected";
+  case WL_NO_SHIELD:       return TXT_WL_NO_SHIELD;
+  // case WL_STOPPED:       return TXT_WL_STOPPED; // future
+  case WL_IDLE_STATUS:     return TXT_WL_IDLE_STATUS;
+  case WL_NO_SSID_AVAIL:   return TXT_WL_NO_SSID_AVAIL;
+  case WL_SCAN_COMPLETED:  return TXT_WL_SCAN_COMPLETED;
+  case WL_CONNECTED:       return TXT_WL_CONNECTED;
+  case WL_CONNECT_FAILED:  return TXT_WL_CONNECT_FAILED;
+  case WL_CONNECTION_LOST: return TXT_WL_CONNECTION_LOST;
+  case WL_DISCONNECTED:    return TXT_WL_DISCONNECTED;
 
   default:  return "";
   }
 } // end getWifiStatusPhrase
+
+/* This function sets the builtin LED to LOW and disables it even during deep
+ * sleep.
+ */
+void disableBuiltinLED()
+{
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+  gpio_hold_en(static_cast<gpio_num_t>(LED_BUILTIN));
+  gpio_deep_sleep_hold_en();
+  return;
+} // end disableBuiltinLED
